@@ -29,14 +29,13 @@ from tqdm import tqdm_notebook as tqdm
 %matplotlib inline
 
 # Configuration
-fold = 0
 sz = 256
-BATCH_SIZE = 1
+BATCH_SIZE = 2
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 NUM_WORKERS = 1
 
 # Constants
-EPOCHS = 15
+EPOCHS = 30
 SEED = 2020
 TH = 0.5  # Threshold for positive predictions
 LABELS_DIR = "/content/drive/MyDrive/MobileNet/Image224"
@@ -57,14 +56,16 @@ class ReadDataset(Dataset):
         self.fnames = [fname for fname in os.listdir(TRAIN_DIR)]
         self.train = train
         self.tfms = tfms
-        
+
     def __len__(self):
         return len(self.fnames)
-    
+
     def __getitem__(self, idx):
         fname = self.fnames[idx]
         img = cv2.cvtColor(cv2.imread(os.path.join(TRAIN_DIR, fname)), cv2.COLOR_BGR2RGB)
         mask = cv2.imread(os.path.join(MASKS_DIR, fname), cv2.IMREAD_GRAYSCALE)
+        mask = (mask > 10).astype(np.float32)
+
         if self.tfms is not None:
             augmented = self.tfms(image=img, mask=mask)
             img, mask = augmented['image'], augmented['mask']
@@ -83,7 +84,7 @@ def get_aug(p=1.0):
         ], p=0.3),
         OneOf([
             CLAHE(clip_limit=2),
-            RandomBrightnessContrast(p=0.3),            
+            RandomBrightnessContrast(p=0.3),
         ], p=0.3),
     ], p=p)
 
@@ -120,82 +121,82 @@ class DiceLoss(nn.Module):
         super(DiceLoss, self).__init__()
 
     def forward(self, inputs, targets, smooth=1):
-        
+
         #comment out if your model contains a sigmoid or equivalent activation layer
-        inputs = F.sigmoid(inputs)       
-        
+        inputs = F.sigmoid(inputs)
+
         #flatten label and prediction tensors
         inputs = inputs.view(-1)
         targets = targets.view(-1)
-        
-        intersection = (inputs * targets).sum()                            
-        dice = (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)  
-        
+
+        intersection = (inputs * targets).sum()
+        dice = (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)
+
         return 1 - dice
 cv_score = 0
-for fold in range(nfolds):
-    ds_t = HuBMAPDataset(fold=fold, train=True, tfms=get_aug())
-    ds_v = HuBMAPDataset(fold=fold, train=False)
+for fold in range(1):
+    ds_t = ReadDataset(fold=fold, train=True, tfms=get_aug())
+    ds_v = ReadDataset(fold=fold, train=False)
     dataloader_t = torch.utils.data.DataLoader(ds_t,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
-    dataloader_v = torch.utils.data.DataLoader(ds_t,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
+    dataloader_v = torch.utils.data.DataLoader(ds_v,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
     model = get_UnetPlusPlus().to(DEVICE)
-    
+
     optimizer = torch.optim.Adam([
-        {'params': model.decoder.parameters(), 'lr': 1e-3}, 
-        {'params': model.encoder.parameters(), 'lr': 1e-3},  
+        {'params': model.decoder.parameters(), 'lr': 1e-3},
+        {'params': model.encoder.parameters(), 'lr': 1e-3},
     ])
-    scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer, pct_start=0.1, div_factor=1e3, 
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer, pct_start=0.1, div_factor=1e3,
                                               max_lr=1e-2, epochs=EPOCHS, steps_per_epoch=len(dataloader_t))
-    
+
     diceloss = DiceLoss()
-    
+
     print(f"########FOLD: {fold}##############")
-    
+
     for epoch in tqdm(range(EPOCHS)):
         ###Train
         model.train()
         train_loss = 0
-    
+
         for data in dataloader_t:
             optimizer.zero_grad()
             img, mask = data
             img = img.to(DEVICE)
             mask = mask.to(DEVICE)
-        
+
             outputs = model(img)
-    
+
             loss = diceloss(outputs, mask)
             loss.backward()
             optimizer.step()
             scheduler.step()
-            
+
             train_loss += loss.item()
         train_loss /= len(dataloader_t)
-        
+
         print(f"FOLD: {fold}, EPOCH: {epoch + 1}, train_loss: {train_loss}")
-        
+
         ###Validation
         model.eval()
         valid_loss = 0
-        
+
         for data in dataloader_v:
             img, mask = data
             img = img.to(DEVICE)
             mask = mask.to(DEVICE)
-        
+
             outputs = model(img)
-    
+
             loss = diceloss(outputs, mask)
-        
+
             valid_loss += loss.item()
         valid_loss /= len(dataloader_v)
-        
+
         print(f"FOLD: {fold}, EPOCH: {epoch + 1}, valid_loss: {valid_loss}")
-        
-        
+
+
     ###Save model
     torch.save(model.state_dict(), f"FOLD{fold}_.pth")
-    
+
     cv_score += valid_loss
-    
+
 cv_score = cv_score
