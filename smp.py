@@ -40,7 +40,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 NUM_WORKERS = 1
 
 # Constants
-EPOCHS = 30
+EPOCHS = 500
 SEED = 2020
 TH = 0.5  # Threshold for positive predictions
 LABELS_DIR = "/content/drive/MyDrive/MobileNet/Image224"
@@ -72,6 +72,7 @@ class ReadDataset(Dataset):
         fname = self.fnames[idx]
         img = cv2.cvtColor(cv2.imread(os.path.join(TRAIN_DIR, fname)), cv2.COLOR_BGR2RGB)
         mask = cv2.imread(os.path.join(MASKS_DIR, fname), cv2.IMREAD_GRAYSCALE)
+         _, mask = cv2.threshold(mask, 10, 255, cv2.THRESH_BINARY)
         if self.tfms is not None:
             augmented = self.tfms(image=img, mask=mask)
             img, mask = augmented['image'], augmented['mask']
@@ -151,8 +152,8 @@ for fold in range(1):
     model = get_UnetPlusPlus().to(DEVICE)
 
     optimizer = torch.optim.Adam([
-        {'params': model.decoder.parameters(), 'lr': 1e-3},
-        {'params': model.encoder.parameters(), 'lr': 1e-3},
+        {'params': model.decoder.parameters(), 'lr': 1e-4},
+        {'params': model.encoder.parameters(), 'lr': 1e-4},
     ])
     scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer, pct_start=0.1, div_factor=1e3,
                                               max_lr=1e-2, epochs=EPOCHS, steps_per_epoch=len(dataloader_t))
@@ -204,7 +205,6 @@ for fold in range(1):
     test_dataset = ReadDataset(test_image,fold=fold, train=False)
     dataloader_test = torch.utils.data.DataLoader(test_dataset,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
     test_loss = 0
-
     for data in dataloader_test:
         img, mask = data
         img = img.to(DEVICE)
