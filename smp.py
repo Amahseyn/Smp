@@ -29,6 +29,9 @@ from tqdm import tqdm_notebook as tqdm
 %matplotlib inline
 
 # Configuration
+fold = 0
+nfolds = 5
+reduce = 4
 sz = 256
 BATCH_SIZE = 2
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -64,8 +67,6 @@ class ReadDataset(Dataset):
         fname = self.fnames[idx]
         img = cv2.cvtColor(cv2.imread(os.path.join(TRAIN_DIR, fname)), cv2.COLOR_BGR2RGB)
         mask = cv2.imread(os.path.join(MASKS_DIR, fname), cv2.IMREAD_GRAYSCALE)
-        mask = (mask > 10).astype(np.float32)
-
         if self.tfms is not None:
             augmented = self.tfms(image=img, mask=mask)
             img, mask = augmented['image'], augmented['mask']
@@ -85,6 +86,7 @@ def get_aug(p=1.0):
         OneOf([
             CLAHE(clip_limit=2),
             RandomBrightnessContrast(p=0.3),
+            RandomGamma(p=0.3)
         ], p=0.3),
     ], p=p)
 
