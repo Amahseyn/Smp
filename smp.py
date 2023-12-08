@@ -7,9 +7,6 @@ import time
 import warnings
 warnings.simplefilter("ignore")
 
-#import pdb
-#import zipfile
-#import pydicom
 from albumentations import *
 import cv2
 from matplotlib import pyplot as plt
@@ -40,7 +37,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 NUM_WORKERS = 1
 
 # Constants
-EPOCHS = 500
+EPOCHS = 100
 SEED = 2020
 TH = 0.5  # Threshold for positive predictions
 LABELS_DIR = "/content/drive/MyDrive/MobileNet/Image224"
@@ -48,9 +45,6 @@ MASKS_DIR = '/content/drive/MyDrive/MobileNet/Mask224'
 TRAIN_DIR = '/content/drive/MyDrive/MobileNet/Image224'
 mean = np.array([0.5, 0.5, 0.5])
 std = np.array([0.5, 0.5, 0.5])
-images_list = os.listdir(TRAIN_DIR)
-train_image, val_image = train_test_split(images_list, test_size=0.2, random_state=42, shuffle=True)
-val_image, test_image = train_test_split(images_list, test_size=0.5, random_state=42, shuffle=True)
 
 # Functions
 def img2tensor(img, dtype=np.float32):
@@ -60,7 +54,7 @@ def img2tensor(img, dtype=np.float32):
     return torch.from_numpy(img.astype(dtype, copy=False))
 
 class ReadDataset(Dataset):
-    def __init__(self, images,fold=fold, train=True, tfms=None):
+    def __init__(self, images, fold=fold, train=True, tfms=None):
         self.fnames = images
         self.train = train
         self.tfms = tfms
@@ -72,7 +66,7 @@ class ReadDataset(Dataset):
         fname = self.fnames[idx]
         img = cv2.cvtColor(cv2.imread(os.path.join(TRAIN_DIR, fname)), cv2.COLOR_BGR2RGB)
         mask = cv2.imread(os.path.join(MASKS_DIR, fname), cv2.IMREAD_GRAYSCALE)
-         _, mask = cv2.threshold(mask, 10, 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(mask, 10, 255, cv2.THRESH_BINARY)
         if self.tfms is not None:
             augmented = self.tfms(image=img, mask=mask)
             img, mask = augmented['image'], augmented['mask']
@@ -97,57 +91,61 @@ def get_aug(p=1.0):
     ], p=p)
 
 # Data loading
-ds = ReadDataset(train_image,tfms=get_aug())
+train_image, val_image,  = train_test_split(os.listdir(TRAIN_DIR), test_size=0.2, random_state=SEED)
+val_image, test_image = train_test_split(val_image, test_size=0.5, random_state=SEED)
+
+ds = ReadDataset(train_image, tfms=get_aug())
 dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
 
-# # Example of train images with masks
-# imgs, masks = next(iter(dl))
+# Example of train images with masks
+imgs, masks = next(iter(dl))
 
-# # Visualization
-# plt.figure(figsize=(16, 16))
-# for i, (img, mask) in enumerate(zip(imgs, masks)):
-#     img = ((img.permute(1, 2, 0) * std + mean) * 255.0).numpy().astype(np.uint8)
-#     plt.subplot(8, 8, i + 1)
-#     plt.imshow(img, vmin=0, vmax=255)
-#     plt.imshow(mask.squeeze().numpy(), alpha=0.2)
-#     plt.axis('off')
-#     plt.subplots_adjust(wspace=None, hspace=None)
+# Visualization
+plt.figure(figsize=(16, 16))
+for i, (img, mask) in enumerate(zip(imgs, masks)):
+    img = ((img.permute(1, 2, 0) * std + mean) * 255.0).numpy().astype(np.uint8)
+    plt.subplot(8, 8, i + 1)
+    plt.imshow(img, vmin=0, vmax=255)
+    plt.imshow(mask.squeeze().numpy(), alpha=0.2)
+    plt.axis('off')
+    plt.subplots_adjust(wspace=None, hspace=None)
 
-# plt.show()
-# del ds, dl, imgs, masks
+plt.show()
+del ds, dl, imgs, masks
+
 def get_UnetPlusPlus():
-    model =  smp.UnetPlusPlus(
-                 encoder_name='efficientnet-b3',
-                 encoder_weights='imagenet',
-                 in_channels=3,
-                 classes=1)
+    model = smp.UnetPlusPlus(
+        encoder_name='efficientnet-b3',
+        encoder_weights='imagenet',
+        in_channels=3,
+        classes=1)
     return model
 
-#https://www.kaggle.com/bigironsphere/loss-function-library-keras-pytorch
+# https://www.kaggle.com/bigironsphere/loss-function-library-keras-pytorch
 class DiceLoss(nn.Module):
     def __init__(self, weight=None, size_average=True):
         super(DiceLoss, self).__init__()
 
     def forward(self, inputs, targets, smooth=1):
-
-        #comment out if your model contains a sigmoid or equivalent activation layer
+        # comment out if your model contains a sigmoid or equivalent activation layer
         inputs = F.sigmoid(inputs)
 
-        #flatten label and prediction tensors
+        # flatten label and prediction tensors
         inputs = inputs.view(-1)
         targets = targets.view(-1)
 
         intersection = (inputs * targets).sum()
-        dice = (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)
+        dice = (2. * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
 
         return 1 - dice
+
 cv_score = 0
 test_score = 0
 for fold in range(1):
-    ds_t = ReadDataset(train_image,fold=fold, train=True, tfms=get_aug())
-    ds_v = ReadDataset(val_image,fold=fold, train=False)
-    dataloader_t = torch.utils.data.DataLoader(ds_t,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
-    dataloader_v = torch.utils.data.DataLoader(ds_v,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
+    ds_t = ReadDataset(train_image, fold=fold, train=True, tfms=get_aug())
+    ds_v = ReadDataset(val_image, fold=fold, train=False)
+    dataloader_t = torch.utils.data.DataLoader(ds_t, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
+    dataloader_v = torch.utils.data.DataLoader(ds_v, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
 
     model = get_UnetPlusPlus().to(DEVICE)
 
@@ -163,7 +161,7 @@ for fold in range(1):
     print(f"########FOLD: {fold}##############")
 
     for epoch in tqdm(range(EPOCHS)):
-        ###Train
+        # Train
         model.train()
         train_loss = 0
 
@@ -185,7 +183,7 @@ for fold in range(1):
 
         print(f"FOLD: {fold}, EPOCH: {epoch + 1}, train_loss: {train_loss}")
 
-        ###Validation
+        # Validation
         model.eval()
         valid_loss = 0
 
@@ -202,8 +200,10 @@ for fold in range(1):
         valid_loss /= len(dataloader_v)
 
         print(f"FOLD: {fold}, EPOCH: {epoch + 1}, valid_loss: {valid_loss}")
-    test_dataset = ReadDataset(test_image,fold=fold, train=False)
-    dataloader_test = torch.utils.data.DataLoader(test_dataset,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
+
+    test_dataset = ReadDataset(test_image, fold=fold, train=False)
+    dataloader_test = torch.utils.data.DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+                                                  num_workers=NUM_WORKERS)
     test_loss = 0
     for data in dataloader_test:
         img, mask = data
@@ -219,10 +219,54 @@ for fold in range(1):
 
     print(f"FOLD: {fold}, EPOCH: {epoch + 1}, test_loss: {test_loss}")
 
-    ###Save model
+    # Save model
     torch.save(model.state_dict(), f"FOLD{fold}_.pth")
 
     cv_score += valid_loss
-    test_score  += test_loss
+    test_score += test_loss
+
 cv_score = cv_score
 test_score = test_score
+
+# Visualization
+# Load the trained model
+model.load_state_dict(torch.load(f"FOLD{fold}_.pth"))
+model.eval()
+
+# Create a DataLoader for visualization (you can adjust batch_size and shuffle as needed)
+visualization_dataloader = DataLoader(ds_v, batch_size=1, shuffle=False, num_workers=NUM_WORKERS)
+
+# Visualization
+with torch.no_grad():
+    for i, data in enumerate(visualization_dataloader):
+        img, mask = data
+        img = img.to(DEVICE)
+        mask = mask.to(DEVICE)
+
+        # Forward pass
+        outputs = model(img)
+
+        # Convert tensors to numpy arrays
+        img_np = ((img.squeeze().permute(1, 2, 0).cpu().numpy() * std + mean) * 255.0).astype(np.uint8)
+        mask_np = mask.squeeze().cpu().numpy()
+        pred_np = (outputs.squeeze().cpu().numpy() > TH).astype(np.uint8)
+
+        # Plot the images, masks, and predictions
+        plt.figure(figsize=(12, 4))
+
+        plt.subplot(1, 3, 1)
+        plt.imshow(img_np)
+        plt.title('Image')
+        plt.axis('off')
+
+        plt.subplot(1, 3, 2)
+        plt.imshow(mask_np, cmap='gray')
+        plt.title('Mask')
+        plt.axis('off')
+
+        plt.subplot(1, 3, 3)
+        plt.imshow(pred_np, cmap='gray')
+        plt.title('Prediction')
+        plt.axis('off')
+
+        plt.show()
