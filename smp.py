@@ -25,7 +25,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader, Dataset, sampler
 from tqdm import tqdm_notebook as tqdm
-
+from sklearn.model_selection import train_test_split
 %matplotlib inline
 
 # Configuration
@@ -46,6 +46,9 @@ MASKS_DIR = '/content/drive/MyDrive/MobileNet/Mask224'
 TRAIN_DIR = '/content/drive/MyDrive/MobileNet/Image224'
 mean = np.array([0.5, 0.5, 0.5])
 std = np.array([0.5, 0.5, 0.5])
+images_list = os.listdir(TRAIN_DIR)
+train_image, val_image = train_test_split(images_list, test_size=0.2, random_state=42, shuffle=True)
+val_image, test_image = train_test_split(images_list, test_size=0.5, random_state=42, shuffle=True)
 
 # Functions
 def img2tensor(img, dtype=np.float32):
@@ -55,8 +58,8 @@ def img2tensor(img, dtype=np.float32):
     return torch.from_numpy(img.astype(dtype, copy=False))
 
 class ReadDataset(Dataset):
-    def __init__(self, fold=fold, train=True, tfms=None):
-        self.fnames = [fname for fname in os.listdir(TRAIN_DIR)]
+    def __init__(self, images,fold=fold, train=True, tfms=None):
+        self.fnames = images
         self.train = train
         self.tfms = tfms
 
@@ -91,7 +94,7 @@ def get_aug(p=1.0):
     ], p=p)
 
 # Data loading
-ds = ReadDataset(tfms=get_aug())
+ds = ReadDataset(train_image,tfms=get_aug())
 dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
 
 # Example of train images with masks
@@ -136,11 +139,14 @@ class DiceLoss(nn.Module):
 
         return 1 - dice
 cv_score = 0
+test_score = 0
 for fold in range(1):
-    ds_t = ReadDataset(fold=fold, train=True, tfms=get_aug())
-    ds_v = ReadDataset(fold=fold, train=False)
+    ds_t = ReadDataset(train_image,fold=fold, train=True, tfms=get_aug())
+    ds_v = ReadDataset(val_image,fold=fold, train=False)
     dataloader_t = torch.utils.data.DataLoader(ds_t,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
     dataloader_v = torch.utils.data.DataLoader(ds_v,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
+    test_dataset = ReadDataset(test_image,fold=fold, train=False)
+    dataloader_test = torch.utils.data.DataLoader(test_dataset,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
     model = get_UnetPlusPlus().to(DEVICE)
 
     optimizer = torch.optim.Adam([
@@ -195,10 +201,26 @@ for fold in range(1):
 
         print(f"FOLD: {fold}, EPOCH: {epoch + 1}, valid_loss: {valid_loss}")
 
+    test_loss = 0
+
+    for data in dataloader_test:
+        img, mask = data
+        img = img.to(DEVICE)
+        mask = mask.to(DEVICE)
+
+        outputs = model(img)
+
+        loss = diceloss(outputs, mask)
+
+        test_loss += loss.item()
+    test_loss /= len(dataloader_test)
+
+    print(f"FOLD: {fold}, EPOCH: {epoch + 1}, test_loss: {test_loss}")
 
     ###Save model
     torch.save(model.state_dict(), f"FOLD{fold}_.pth")
 
     cv_score += valid_loss
-
+    test_score  += test_loss
 cv_score = cv_score
+test_score = test_score
