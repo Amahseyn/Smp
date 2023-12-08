@@ -1,3 +1,5 @@
+#!pip install --root-user-action=ignore -q segmentation-models-pytorch pytorch-lightning tabulate
+#!pip install -U scikit-image
 import gc
 import os
 import random
@@ -33,7 +35,7 @@ fold = 0
 nfolds = 5
 reduce = 4
 sz = 256
-BATCH_SIZE = 2
+BATCH_SIZE = 1
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 NUM_WORKERS = 1
 
@@ -97,21 +99,21 @@ def get_aug(p=1.0):
 ds = ReadDataset(train_image,tfms=get_aug())
 dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
 
-# Example of train images with masks
-imgs, masks = next(iter(dl))
+# # Example of train images with masks
+# imgs, masks = next(iter(dl))
 
-# Visualization
-plt.figure(figsize=(16, 16))
-for i, (img, mask) in enumerate(zip(imgs, masks)):
-    img = ((img.permute(1, 2, 0) * std + mean) * 255.0).numpy().astype(np.uint8)
-    plt.subplot(8, 8, i + 1)
-    plt.imshow(img, vmin=0, vmax=255)
-    plt.imshow(mask.squeeze().numpy(), alpha=0.2)
-    plt.axis('off')
-    plt.subplots_adjust(wspace=None, hspace=None)
+# # Visualization
+# plt.figure(figsize=(16, 16))
+# for i, (img, mask) in enumerate(zip(imgs, masks)):
+#     img = ((img.permute(1, 2, 0) * std + mean) * 255.0).numpy().astype(np.uint8)
+#     plt.subplot(8, 8, i + 1)
+#     plt.imshow(img, vmin=0, vmax=255)
+#     plt.imshow(mask.squeeze().numpy(), alpha=0.2)
+#     plt.axis('off')
+#     plt.subplots_adjust(wspace=None, hspace=None)
 
-plt.show()
-del ds, dl, imgs, masks
+# plt.show()
+# del ds, dl, imgs, masks
 def get_UnetPlusPlus():
     model =  smp.UnetPlusPlus(
                  encoder_name='efficientnet-b3',
@@ -145,8 +147,7 @@ for fold in range(1):
     ds_v = ReadDataset(val_image,fold=fold, train=False)
     dataloader_t = torch.utils.data.DataLoader(ds_t,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
     dataloader_v = torch.utils.data.DataLoader(ds_v,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
-    test_dataset = ReadDataset(test_image,fold=fold, train=False)
-    dataloader_test = torch.utils.data.DataLoader(test_dataset,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
+
     model = get_UnetPlusPlus().to(DEVICE)
 
     optimizer = torch.optim.Adam([
@@ -200,7 +201,8 @@ for fold in range(1):
         valid_loss /= len(dataloader_v)
 
         print(f"FOLD: {fold}, EPOCH: {epoch + 1}, valid_loss: {valid_loss}")
-
+    test_dataset = ReadDataset(test_image,fold=fold, train=False)
+    dataloader_test = torch.utils.data.DataLoader(test_dataset,batch_size=BATCH_SIZE, shuffle=False,num_workers=NUM_WORKERS)
     test_loss = 0
 
     for data in dataloader_test:
