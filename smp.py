@@ -1,5 +1,5 @@
-#!pip install --root-user-action=ignore -q segmentation-models-pytorch pytorch-lightning tabulate
-#!pip install -U scikit-image
+!pip install --root-user-action=ignore -q segmentation-models-pytorch pytorch-lightning tabulate
+!pip install -U scikit-image
 import gc
 import os
 import random
@@ -32,7 +32,7 @@ fold = 0
 nfolds = 5
 reduce = 4
 sz = 256
-BATCH_SIZE = 1
+BATCH_SIZE = 4
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 NUM_WORKERS = 1
 
@@ -67,9 +67,9 @@ class ReadDataset(Dataset):
         img = cv2.cvtColor(cv2.imread(os.path.join(TRAIN_DIR, fname)), cv2.COLOR_BGR2RGB)
         mask = cv2.imread(os.path.join(MASKS_DIR, fname), cv2.IMREAD_GRAYSCALE)
         _, mask = cv2.threshold(mask, 10, 255, cv2.THRESH_BINARY)
-        if self.tfms is not None:
-            augmented = self.tfms(image=img, mask=mask)
-            img, mask = augmented['image'], augmented['mask']
+        #if self.tfms is not None:
+            #augmented = self.tfms(image=img, mask=mask)
+            #img, mask = augmented['image'], augmented['mask']
         return img2tensor((img / 255.0 - mean) / std), img2tensor(mask)
 
 def get_aug(p=1.0):
@@ -234,7 +234,7 @@ model.load_state_dict(torch.load(f"FOLD{fold}_.pth"))
 model.eval()
 
 # Create a DataLoader for visualization (you can adjust batch_size and shuffle as needed)
-visualization_dataloader = DataLoader(ds_v, batch_size=1, shuffle=False, num_workers=NUM_WORKERS)
+visualization_dataloader = DataLoader(ds_v, batch_size=4, shuffle=False, num_workers=NUM_WORKERS)
 
 # Visualization
 with torch.no_grad():
