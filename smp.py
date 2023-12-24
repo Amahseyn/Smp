@@ -1,5 +1,7 @@
 !pip install --root-user-action=ignore -q segmentation-models-pytorch pytorch-lightning tabulate
 !pip install -U scikit-image
+!pip install -U git+https://github.com/albumentations-team/albumentations
+
 import gc
 import os
 import random
@@ -37,7 +39,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 NUM_WORKERS = 1
 
 # Constants
-EPOCHS = 100
+EPOCHS = 3
 SEED = 2020
 TH = 0.5  # Threshold for positive predictions
 LABELS_DIR = "/content/drive/MyDrive/MobileNet/Image224"
@@ -67,9 +69,9 @@ class ReadDataset(Dataset):
         img = cv2.cvtColor(cv2.imread(os.path.join(TRAIN_DIR, fname)), cv2.COLOR_BGR2RGB)
         mask = cv2.imread(os.path.join(MASKS_DIR, fname), cv2.IMREAD_GRAYSCALE)
         _, mask = cv2.threshold(mask, 10, 255, cv2.THRESH_BINARY)
-        #if self.tfms is not None:
-            #augmented = self.tfms(image=img, mask=mask)
-            #img, mask = augmented['image'], augmented['mask']
+        if self.tfms is not None:
+            augmented = self.tfms(image=img, mask=mask)
+            img, mask = augmented['image'], augmented['mask']
         return img2tensor((img / 255.0 - mean) / std), img2tensor(mask)
 
 def get_aug(p=1.0):
